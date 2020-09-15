@@ -43,6 +43,7 @@ def match_cv_records input
     input.split("\n").each do |line|                   
         tokenized_line = line.split
         if (tokenized_line[6] == "/cv/" || tokenized_line[6] == "/cv") && tokenized_line[5] == "\"GET"
+            puts "\tFound match to evaluate: \t IP: #{tokenized_line[0]}"
             matched_records << {:timestamp => tokenized_line[3].tr('[', ''), :ip => tokenized_line[0]} 
         end
     end
@@ -50,6 +51,7 @@ def match_cv_records input
 end
 
 def geo_api_lookup pair
+    puts "\tProcessing Geo IP lookup for: #{pair.inspect}"
     uri = URI.parse("https://json.geoiplookup.io/#{pair[:ip]}")
     response = Net::HTTP.get_response(uri)
     response_json = JSON.parse(response.body)
@@ -81,7 +83,6 @@ matched_records = match_cv_records(log_strings)
 
 latest_results = []
 matched_records.each do |pair|
-    # puts "Processing pair: #{pair.inspect}"
     response_hash = geo_api_lookup(pair)
     latest_results << response_hash
 
