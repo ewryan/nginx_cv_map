@@ -1,2 +1,4 @@
 secrets.yml
 previous_results.json
+previous_results_raw.json
+previous_results_geo.json

@@ -9,6 +9,7 @@ require 'yaml'
 @slack_webhook_url = @secrets_hash["slack_webhook_url"]
 
 def send_slack_message message
+    puts "Sending Slack message: '#{message.inspect}'"
     uri = URI.parse(@slack_webhook_url)
     request = Net::HTTP::Post.new(uri)
     request.content_type = "application/json"
@@ -44,22 +45,23 @@ def match_cv_records input
         tokenized_line = line.split
         if (tokenized_line[6] == "/cv/" || tokenized_line[6] == "/cv") && tokenized_line[5] == "\"GET"
             puts "\tFound match to evaluate: \t IP: #{tokenized_line[0]}"
-            matched_records << {:timestamp => tokenized_line[3].tr('[', ''), :ip => tokenized_line[0]} 
+            matched_records << {"timestamp" => tokenized_line[3].tr('[', ''), "ip" => tokenized_line[0]} 
         end
     end
-    return matched_records.sort_by! {|k| k[:timestamp]}.uniq! {|pair| pair[:ip]}.reverse!
+    return matched_records.sort_by! {|k| k["timestamp"]}.uniq! {|pair| pair["ip"]}.reverse!
 end
 
 def geo_api_lookup pair
     puts "\tProcessing Geo IP lookup for: #{pair.inspect}"
-    uri = URI.parse("https://json.geoiplookup.io/#{pair[:ip]}")
+    uri = URI.parse("https://json.geoiplookup.io/#{pair["ip"]}")
     response = Net::HTTP.get_response(uri)
     response_json = JSON.parse(response.body)
-    {"timestamp" => pair[:timestamp], "ip" => response_json["ip"], "city" => response_json["city"], "region" => response_json["region"], "country_name" => response_json["country_name"]}
+    sleep 0.5
+    {"timestamp" => pair["timestamp"], "ip" => response_json["ip"], "city" => response_json["city"], "region" => response_json["region"], "country_name" => response_json["country_name"]}
 end
 
-def read_previous_results 
-    filename = "previous_results.json"
+def read_previous_results filename
+    puts "Reading from file: '#{filename}'"
     if File.exist?(filename)
         file = File.open filename
         return JSON.load file
@@ -69,41 +71,33 @@ def read_previous_results
     
 end
 
-def write_result data
-    File.write('./previous_results.json', JSON.dump(data))
+def write_result data, filename
+    puts "Writing to file: '#{filename}'"
+    File.write(filename, JSON.dump(data))
 end
 
 def new_records_exist? latest_results, previous_results
+    # puts "DEBUG: latest results: #{latest_results.inspect}"
+    # puts "DEBUG: previous results: #{previous_results.inspect}"
     (latest_results - previous_results).size != 0
 end
 
 #log_strings = File.open("test.log")
 log_strings = fetch_nginx_logs_from_remote
-matched_records = match_cv_records(log_strings)
+previous_results = read_previous_results './previous_results_raw.json'
+latest_results = match_cv_records(log_strings)
 
-latest_results = []
-matched_records.each do |pair|
-    response_hash = geo_api_lookup(pair)
-    latest_results << response_hash
-
-    # break #Uncomment this debug statement to stop after first loop
-
-    sleep 0.5
-end
-
-previous_results = read_previous_results
 if new_records_exist? latest_results, previous_results
-    formatted_results = latest_results.join("\n")
-    puts "Found new records. Sending notifying Slack."
-    puts "Latest records dump: #{formatted_results.inspect}"
-    send_slack_message("New GET record(s) for 'http://ericwryan.com/cv/': \n #{formatted_results}")
+    puts "Found new records. Performing Geo Lookups"
+    new_records = latest_results - previous_results
+    new_records_with_geo = new_records.map {|r| geo_api_lookup r}  
+    send_slack_message "New matching record found in nginx logs: \n#{new_records_with_geo.join("\n")}"
+    write_result(new_records_with_geo, './previous_results_geo.json')
 else
     puts "No new records found."
 end
 
-puts "Writing latest results."
-write_result latest_results
+write_result(latest_results, './previous_results_raw.json')
 
-puts "Done. Exiting."
 exit
 
