@@ -32,7 +32,7 @@ def fetch_nginx_logs_from_remote
     puts "Fetching nginx logs from remote: #{@secrets_hash["host"]}"
     ssh_result = ""
     Net::SSH.start(@secrets_hash["host"], @secrets_hash["user"], :password => @secrets_hash["password"]) do |ssh|
-        result = ssh.exec!("echo \"#{@secrets_hash["password"]}\" | sudo -S zcat -f /var/log/nginx/access.log*")
+        result = ssh.exec!("echo \"#{@secrets_hash["password"]}\" | sudo -S zcat -f #{@secrets_hash["log_search_string"]}")
         ssh_result = result.to_s
     end
     return ssh_result
