@@ -43,7 +43,7 @@ def match_cv_records input
     matched_records = [] #[{:timestamp => "1234", ip => "1.1.1.1"}, ...]
     input.split("\n").each do |line|                   
         tokenized_line = line.split
-        if (tokenized_line[6] == "/cv/" || tokenized_line[6] == "/cv") && tokenized_line[5] == "\"GET"
+        if (line.include?(@secrets_hash["log_match_string"])) && tokenized_line[5] == "\"GET"
             puts "\tFound match to evaluate: \t IP: #{tokenized_line[0]}"
             matched_records << {"timestamp" => tokenized_line[3].tr('[', ''), "ip" => tokenized_line[0]} 
         end
