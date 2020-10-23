@@ -4,6 +4,7 @@ require 'uri'
 require 'json'
 require 'net/ssh'
 require 'yaml'
+require 'mysql2'
 
 @secrets_hash = YAML.load(File.read("secrets.yml"))
 @slack_webhook_url = @secrets_hash["slack_webhook_url"]
@@ -57,7 +58,15 @@ def geo_api_lookup pair
     response = Net::HTTP.get_response(uri)
     response_json = JSON.parse(response.body)
     sleep 0.5
-    {"timestamp" => pair["timestamp"], "ip" => response_json["ip"], "city" => response_json["city"], "region" => response_json["region"], "country_name" => response_json["country_name"]}
+    {
+        "timestamp" => pair["timestamp"], 
+        "ip" => response_json["ip"], 
+        "city" => response_json["city"], 
+        "region" => response_json["region"], 
+        "country_name" => response_json["country_name"], 
+        "latitude" => response_json["latitude"], 
+        "longitude" => response_json["longitude"]
+    }
 end
 
 def read_previous_results filename
@@ -79,18 +88,40 @@ end
 def new_records_exist? latest_results, previous_results
     # puts "DEBUG: latest results: #{latest_results.inspect}"
     # puts "DEBUG: previous results: #{previous_results.inspect}"
-    (latest_results - previous_results).size != 0
+    previous_results == nil || (latest_results - previous_results).size != 0
 end
 
-#log_strings = File.open("test.log")
+def persist_to_mysql records
+    puts "Persisting #{records.size} records to MySQL"
+    client = Mysql2::Client.new( :host => 'mysql.loc', :username => 'root', :password => 'drunk-parking-arm', :database => 'grafana')
+    records.each do |record|
+        puts "DEBUG: persisting record #{record.inspect}"
+        statement = "INSERT INTO 
+        grafana.worldmap_latlng 
+        (lat, lng, name, value, timestamp) VALUES 
+        (
+            #{record["latitude"]}, 
+            #{record["longitude"]}, 
+            '#{client.escape(record["city"])}, #{client.escape(record["region"])}, #{client.escape(record["country_name"])}', 
+            1, 
+            NOW()
+        );"
+        client.query(statement)
+    end
+end
+
+
+
+# log_strings = File.open("test.log")
 log_strings = fetch_nginx_logs_from_remote
 previous_results = read_previous_results './previous_results_raw.json'
 latest_results = match_cv_records(log_strings)
 
 if new_records_exist? latest_results, previous_results
     puts "Found new records. Performing Geo Lookups"
-    new_records = latest_results - previous_results
+    new_records = latest_results - (previous_results || [])
     new_records_with_geo = new_records.map {|r| geo_api_lookup r}  
+    persist_to_mysql(new_records_with_geo)
     send_slack_message "New matching record found in nginx logs: \n#{new_records_with_geo.join("\n")}"
     write_result(new_records_with_geo, './previous_results_geo.json')
 else
